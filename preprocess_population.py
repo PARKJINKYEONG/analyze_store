@@ -15,6 +15,7 @@ YEARS = [2023, 2024]
 
 
 def read_table_auto(path):
+    """파일 자동 읽기 (구분자/인코딩 자동 판별)"""
     ext = os.path.splitext(path)[1].lower()
 
     if ext in [".xlsx", ".xls"]:
@@ -22,19 +23,22 @@ def read_table_auto(path):
 
     for enc in ["utf-8-sig", "cp949", "euc-kr", "utf-8"]:
         try:
-            df = pd.read_csv(path, encoding=enc)
+            # 먼저 첫 줄을 읽어서 구분자 판별
+            with open(path, "r", encoding=enc) as f:
+                first_line = f.readline()
 
-            if len(df.columns) == 1:
-                first_col = str(df.columns[0])
-                if "|" in first_col:
-                    df = pd.read_csv(path, encoding=enc, sep="|")
-                elif "\t" in first_col:
-                    df = pd.read_csv(path, encoding=enc, sep="\t")
+            if "|" in first_line:
+                sep = "|"
+            elif "\t" in first_line:
+                sep = "\t"
+            else:
+                sep = ","
 
+            df = pd.read_csv(path, encoding=enc, sep=sep)
             return df
 
         except Exception:
-            pass
+            continue
 
     raise ValueError(f"파일 읽기 실패: {path}")
 
@@ -59,58 +63,64 @@ def get_month_folders():
     return sorted(folders)
 
 
-def find_file(folder, keywords):
+def debug_folder(folder):
+    files = (
+        glob.glob(os.path.join(folder, "*.csv"))
+        + glob.glob(os.path.join(folder, "*.xlsx"))
+        + glob.glob(os.path.join(folder, "*.xls"))
+    )
+    print(f"\n[디버그] 폴더 내 파일 목록 ({os.path.basename(folder)})")
+    for f in files:
+        print(" -", os.path.basename(f))
+
+
+def find_file_by_pattern(folder, pattern):
+    """정규식 패턴으로 파일명 매칭"""
     files = (
         glob.glob(os.path.join(folder, "*.csv"))
         + glob.glob(os.path.join(folder, "*.xlsx"))
         + glob.glob(os.path.join(folder, "*.xls"))
     )
 
-    if isinstance(keywords, str):
-        keywords = [keywords]
-
     for f in files:
         name = os.path.basename(f).lower()
-        if all(k.lower() in name for k in keywords):
+        if re.search(pattern, name):
             return f
 
     return None
 
 
 def normalize_dong_code(x):
+    """행정동 코드 정규화"""
     if pd.isna(x):
         return ""
 
     x = str(x).strip()
 
-    if x.endswith(".0"):
-        x = x[:-2]
-
     try:
-        if "e" in x.lower():
+        if "e" in x.lower() or "." in x:
             x = str(int(float(x)))
     except Exception:
         pass
+
+    if x.endswith(".0"):
+        x = x[:-2]
 
     return x
 
 
 def find_code_col(df):
+    """행정동 코드 컬럼 찾기"""
     candidates = [
-        "admdong_cd",
-        "admdong_id",
-        "admi_cd",
-        "adm_cd",
-        "emd_cd",
-        "행정동코드",
-        "행정동",
-        "mc_ad3",
-        "mc_ad3_cd",
+        "admdong_cd", "admdong_id", "admi_cd", "adm_cd", "emd_cd",
+        "행정동코드", "행정동", "mc_ad3", "mc_ad3_cd",
     ]
 
+    cols_lower = {str(c).lower(): c for c in df.columns}
+
     for c in candidates:
-        if c in df.columns:
-            return c
+        if c.lower() in cols_lower:
+            return cols_lower[c.lower()]
 
     return None
 
@@ -127,61 +137,71 @@ def clean_numeric_series(s):
 
 
 def find_population_columns(df, pop_type):
+    """인구 수치 컬럼 자동 탐색
+
+    pop_type:
+      - home : h_로 시작하는 거주인구 컬럼 (h_m_*, h_f_*)
+      - work : w_로 시작하는 근무인구 컬럼
+      - inflow : 유입인구 관련 컬럼
+    """
     cols = list(df.columns)
 
+    exclude_keywords = [
+        "code", "cd", "id", "dong", "admi", "adm", "emd",
+        "date", "dt", "timezn", "time_cd", "year", "month",
+        "cell", "xcdn", "ycdn", "x_", "y_", "lon", "lat", "coord",
+        "시도", "시군구", "행정", "법정", "주소", "지역",
+    ]
+
+    pop_cols = []
+
     if pop_type == "home":
-        # h_m_*, h_f_* 패턴 (대소문자 무시)
-        pop_cols = [
-            c for c in cols
-            if re.match(r"^h_[mf]_\d+$", str(c).lower())
-        ]
+        for c in cols:
+            c_lower = str(c).lower()
+
+            if any(ex in c_lower for ex in exclude_keywords):
+                continue
+
+            if re.match(r"^h[_]", c_lower):
+                pop_cols.append(c)
 
     elif pop_type == "work":
-        pop_cols = [
-            c for c in cols
-            if re.match(r"^w_[mf]_\d+$", str(c).lower())
-        ]
+        for c in cols:
+            c_lower = str(c).lower()
 
-    elif pop_type == "time_home":
-        pop_cols = [
-            c for c in cols
-            if re.match(r"^h_[mf]_\d+$", str(c).lower())
-        ]
+            if any(ex in c_lower for ex in exclude_keywords):
+                continue
 
-    elif pop_type == "time_work":
-        pop_cols = [
-            c for c in cols
-            if re.match(r"^w_[mf]_\d+$", str(c).lower())
-        ]
+            if re.match(r"^w[_]", c_lower):
+                pop_cols.append(c)
 
     elif pop_type == "inflow":
-        # 기존 inflow 로직 유지
-        exclude_keywords = [
-            "code", "cd", "id", "dong", "admi", "adm", "emd",
-            "date", "dt", "timezn", "time_cd", "year", "month",
-            "cell", "xcdn", "ycdn", "x_", "y_", "lon", "lat",
-            "시도", "시군구", "행정", "법정", "주소", "지역",
+        include_keywords = [
+            "inflow", "flow", "pop", "cnt",
+            "인구", "유입", "방문", "유동",
         ]
-        include_keywords = ["inflow", "flow", "pop", "cnt", "인구", "유입", "방문", "유동"]
 
-        pop_cols = []
         for c in cols:
-            c_str = str(c).lower()
-            if any(ex in c_str for ex in exclude_keywords):
+            c_lower = str(c).lower()
+
+            if any(ex in c_lower for ex in exclude_keywords):
                 continue
-            if any(key in c_str for key in include_keywords):
+
+            if any(key in c_lower for key in include_keywords):
                 pop_cols.append(c)
 
         if not pop_cols:
             for c in cols:
-                c_str = str(c).lower()
-                if any(ex in c_str for ex in exclude_keywords):
+                c_lower = str(c).lower()
+
+                if any(ex in c_lower for ex in exclude_keywords):
                     continue
+
                 sample = clean_numeric_series(df[c])
-                if 0 < sample.max() < 10_000_000:
+                max_val = sample.max()
+
+                if 0 < max_val < 10_000_000:
                     pop_cols.append(c)
-    else:
-        pop_cols = []
 
     return pop_cols
 
@@ -190,7 +210,8 @@ def sum_population_file(path, pop_type):
     df = read_table_auto(path)
 
     print(f"\n[인구 파일 읽음] {os.path.basename(path)}")
-    print("컬럼:", df.columns.tolist())
+    print(f"컬럼 ({len(df.columns)}개):", df.columns.tolist()[:10],
+          "..." if len(df.columns) > 10 else "")
 
     code_col = find_code_col(df)
 
@@ -201,11 +222,12 @@ def sum_population_file(path, pop_type):
     pop_cols = find_population_columns(df, pop_type)
 
     if len(pop_cols) == 0:
-        print(f"[스킵] {os.path.basename(path)}: 인구 수치 컬럼 없음")
+        print(f"[스킵] {os.path.basename(path)}: 인구 수치 컬럼 없음 (pop_type={pop_type})")
         return pd.DataFrame(columns=["dong_code", "pop_value"])
 
-    print("사용한 행정동 코드 컬럼:", code_col)
-    print("사용한 인구 컬럼:", pop_cols)
+    print(f"행정동 코드 컬럼: {code_col}")
+    print(f"인구 컬럼 ({len(pop_cols)}개): {pop_cols[:5]}"
+          + (" ..." if len(pop_cols) > 5 else ""))
 
     df["dong_code"] = df[code_col].apply(normalize_dong_code)
 
@@ -214,7 +236,7 @@ def sum_population_file(path, pop_type):
 
     df["pop_value"] = df[pop_cols].sum(axis=1)
 
-    # 비정상적으로 큰 값 제거
+    # 비정상 거대값 제거
     df.loc[df["pop_value"] > 100_000_000, "pop_value"] = np.nan
     df["pop_value"] = df["pop_value"].fillna(0)
 
@@ -232,17 +254,17 @@ def preprocess_one_month(folder):
     if ym is None:
         return None
 
-    home_file = find_file(folder, ["exist", "dong", "h"])
-    work_file = find_file(folder, ["exist", "dong", "w"])
-    time_home_file = find_file(folder, ["exist", "time", "h"])
-    time_work_file = find_file(folder, ["exist", "time", "w"])
-    inflow_file = find_file(folder, ["inflow"])
+    debug_folder(folder)
 
-    print("home_file:", home_file)
-    print("work_file:", work_file)
-    print("time_home_file:", time_home_file)
-    print("time_work_file:", time_work_file)
-    print("inflow_file:", inflow_file)
+    # 행정동 단위 파일만 사용 (pcell = 격자 단위는 좌표만 있어서 제외)
+    home_file = find_file_by_pattern(folder, r"exist_dong_h[_]?pop")
+    work_file = find_file_by_pattern(folder, r"exist_dong_w[_]?pop")
+    inflow_file = find_file_by_pattern(folder, r"^gumi_inflow")
+
+    print(f"\n[파일 매칭 결과] {os.path.basename(folder)}")
+    print("  home_file   :", os.path.basename(home_file) if home_file else "없음")
+    print("  work_file   :", os.path.basename(work_file) if work_file else "없음")
+    print("  inflow_file :", os.path.basename(inflow_file) if inflow_file else "없음")
 
     base = pd.DataFrame(columns=["dong_code"])
 
@@ -260,20 +282,6 @@ def preprocess_one_month(folder):
         )
         base = work if base.empty else base.merge(work, on="dong_code", how="outer")
 
-    if time_home_file:
-        th = (
-            sum_population_file(time_home_file, "time_home")
-            .rename(columns={"pop_value": "time_home_pop"})
-        )
-        base = th if base.empty else base.merge(th, on="dong_code", how="outer")
-
-    if time_work_file:
-        tw = (
-            sum_population_file(time_work_file, "time_work")
-            .rename(columns={"pop_value": "time_work_pop"})
-        )
-        base = tw if base.empty else base.merge(tw, on="dong_code", how="outer")
-
     if inflow_file:
         inflow = (
             sum_population_file(inflow_file, "inflow")
@@ -284,27 +292,32 @@ def preprocess_one_month(folder):
     if base.empty:
         return None
 
+    # 빈 dong_code 제거
+    base = base[base["dong_code"].astype(str).str.len() > 0].copy()
+
     base["year_month"] = ym
 
-    for col in [
-        "home_pop",
-        "work_pop",
-        "time_home_pop",
-        "time_work_pop",
-        "inflow_pop",
-    ]:
+    for col in ["home_pop", "work_pop", "inflow_pop"]:
         if col not in base.columns:
             base[col] = 0
 
         base[col] = pd.to_numeric(base[col], errors="coerce").fillna(0)
 
-    base["living_pop"] = base["home_pop"] + base["work_pop"]
-    base["time_pop"] = base["time_home_pop"] + base["time_work_pop"]
+    # dong_code 기준 재집계 (혹시 같은 코드가 여러 행이면 합산)
+    base = base.groupby(["dong_code", "year_month"], as_index=False).agg({
+        "home_pop": "sum",
+        "work_pop": "sum",
+        "inflow_pop": "sum",
+    })
 
+    base["living_pop"] = base["home_pop"] + base["work_pop"]
+
+    # 시간대별(time_pop) 제외에 따른 가중치 재배분
+    # 기존: living 0.40 + work 0.25 + time 0.25 + inflow 0.10
+    # 변경: living 0.55 + work 0.30 + inflow 0.15
     base["total_demand_pop"] = (
-        base["home_pop"] * 0.30
+        base["home_pop"] * 0.55
         + base["work_pop"] * 0.30
-        + base["time_pop"] * 0.25
         + base["inflow_pop"] * 0.15
     )
 
@@ -313,10 +326,7 @@ def preprocess_one_month(folder):
         "year_month",
         "home_pop",
         "work_pop",
-        "time_home_pop",
-        "time_work_pop",
         "living_pop",
-        "time_pop",
         "inflow_pop",
         "total_demand_pop",
     ]
@@ -348,9 +358,8 @@ def main():
     )
 
     summary = result.groupby("dong_code", as_index=False).agg(
-        avg_living_pop=("living_pop", "mean"),
+        avg_home_pop=("home_pop", "mean"),
         avg_work_pop=("work_pop", "mean"),
-        avg_time_pop=("time_pop", "mean"),
         avg_inflow_pop=("inflow_pop", "mean"),
         avg_total_demand_pop=("total_demand_pop", "mean")
     )
