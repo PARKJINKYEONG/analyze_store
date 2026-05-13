@@ -3,7 +3,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib import font_manager, rc
 
-PROJECT_DIR = "C:\\Users\\A\\Desktop\\Proj\\store analysis"
+PROJECT_DIR = r"C:\Users\GAENG2\Desktop\analyze_store_main"
 OUT_DIR = os.path.join(PROJECT_DIR, "output_2023_2024")
 VIZ_DIR = os.path.join(OUT_DIR, "visuals")
 os.makedirs(VIZ_DIR, exist_ok=True)

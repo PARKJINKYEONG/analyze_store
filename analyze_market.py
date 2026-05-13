@@ -4,7 +4,7 @@ import glob
 import numpy as np
 import pandas as pd
 
-PROJECT_DIR = "C:\\Users\\A\\Desktop\\Proj\\store analysis"
+PROJECT_DIR = r"C:\Users\GAENG2\Desktop\analyze_store_main"
 OUT_DIR = os.path.join(PROJECT_DIR, "output_2023_2024")
 STORE_DIR = os.path.join(PROJECT_DIR, "data", "store")
 
@@ -292,11 +292,7 @@ def load_store_supply():
         temp["legal_dong"] = temp["addr"].apply(extract_dong)
         temp["dong"] = temp["legal_dong"].apply(legal_to_admin_dong)
 
-        temp["category"] = temp.apply(lambda row: classify_store_name(
-            row.get("store_name", ""),
-            row.get("addr", "")
-            ),
-            axis=1)
+        temp["category"] = temp.apply(classify_store_name, axis=1)
 
         frames.append(temp)
 
@@ -763,7 +759,7 @@ def analyze_integrated(pop, consume, inflow, supply):
 
 
 def main():
-    pop = pd.read_csv(os.path.join(OUT_DIR, "population_monthly.csv"), encoding="utf-8-sig")
+    pop = pd.read_csv(os.path.join(OUT_DIR, "population_monthly2.csv"), encoding="utf-8-sig")
     consume = pd.read_csv(os.path.join(OUT_DIR, "consumption_monthly_dong.csv"), encoding="utf-8-sig")
 
     consume = consume[consume["category"].isin(TARGET_CATEGORIES)].copy()

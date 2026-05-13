@@ -4,10 +4,10 @@ import glob
 import numpy as np
 import pandas as pd
 
-BASE_DIR = "C:\\Users\\A\\Desktop\\데이터"
+BASE_DIR = r"E:\데이터"
 CONSUME_ROOT = os.path.join(BASE_DIR, "구미 소비데이터")
 
-PROJECT_DIR = "C:\\Users\\A\\Desktop\\Proj\\store analysis"
+PROJECT_DIR = r"C:\Users\GAENG2\Desktop\analyze_store_main"
 OUT_DIR = os.path.join(PROJECT_DIR, "output_2023_2024")
 os.makedirs(OUT_DIR, exist_ok=True)
 

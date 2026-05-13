@@ -1,22 +1,98 @@
+import os
+import glob
 import pandas as pd
 
-df = pd.read_csv(
-    r"C:\Users\A\Desktop\Proj\store analysis\output_2023_2024\store_classified.csv",
-    encoding="utf-8-sig"
-)
+BASE_DIR = r"E:\데이터"
+CONSUME_ROOT = os.path.join(BASE_DIR, "구미 소비데이터")
 
-goa = df[df["dong"] == "옥성면"].copy()
+PROJECT_DIR = r"C:\Users\GAENG2\Desktop\analyze_store_main"
+OUT_DIR = os.path.join(PROJECT_DIR, "output_2023_2024")
 
-print("옥성면 전체 업소 수:", len(goa))
-print(goa["category"].value_counts())
+YEARS = [2023, 2024]
 
-print("\옥성면 일식으로 분류된 업소")
-print(goa[goa["category"] == "일식"][["store_name", "addr", "category"]])
+JAPAN_KEYS = [
+    "일식", "초밥", "스시", "참치", "라멘", "우동",
+    "돈까스", "돈가스", "돈카츠", "카츠", "가츠",
+    "덮밥", "소바", "메밀", "텐동", "이자카야",
+    "오마카세", "사케", "야키", "야끼"
+]
 
-print("\옥성면 일식 후보인데 다른 카테고리로 간 업소")
-keywords = "돈까스|돈카츠|카츠|파스타|스파게티|스테이크|브런치|레스토랑|양식|피자|버거|샐러드|포케|토스트|샌드위치"
-print(
-    goa[
-        goa["store_name"].astype(str).str.contains(keywords, na=False)
-    ][["store_name", "addr", "category"]]
-)
+
+def read_table_auto(path):
+    for enc in ["utf-8-sig", "cp949", "euc-kr", "utf-8"]:
+        try:
+            return pd.read_csv(path, encoding=enc)
+        except Exception:
+            pass
+    raise ValueError(f"읽기 실패: {path}")
+
+
+def get_month_folders():
+    folders = []
+    for year in YEARS:
+        year_dir = os.path.join(CONSUME_ROOT, f"{year}년")
+        folders.extend(glob.glob(os.path.join(year_dir, f"{year}_*월_소비")))
+    return sorted(folders)
+
+
+def main():
+    rows = []
+
+    for folder in get_month_folders():
+        files = glob.glob(os.path.join(folder, "*DD_R_2*"))
+
+        for f in files:
+            if "DD2" in os.path.basename(f):
+                continue
+
+            df = read_table_auto(f)
+
+            # 원본 컬럼 확인용
+            cols = df.columns.tolist()
+
+            for _, row in df.iterrows():
+                text = " ".join([
+                    str(row.get("mc_bzc1_nm", "")),
+                    str(row.get("mc_bzc2_nm", "")),
+                    str(row.get("mc_bzc3_nm", "")),
+                    str(row.get("store_name", "")),
+                    str(row.get("업소명", "")),
+                    str(row.get("가맹점명", "")),
+                    str(row.get("addr", "")),
+                    str(row.get("주소", "")),
+                    str(row.get("소재지", "")),
+                ])
+
+                compact = text.replace(" ", "").lower()
+
+                hit_keys = [k for k in JAPAN_KEYS if k in compact]
+
+                if hit_keys:
+                    rows.append({
+                        "file": os.path.basename(f),
+                        "folder": os.path.basename(folder),
+                        "hit_keys": ",".join(hit_keys),
+                        "mc_bzc1_nm": row.get("mc_bzc1_nm", ""),
+                        "mc_bzc2_nm": row.get("mc_bzc2_nm", ""),
+                        "mc_bzc3_nm": row.get("mc_bzc3_nm", ""),
+                        "store_name": row.get("store_name", row.get("업소명", row.get("가맹점명", ""))),
+                        "addr": row.get("addr", row.get("주소", row.get("소재지", ""))),
+                        "cell_id": row.get("cell_id", ""),
+                        "xcdn": row.get("xcdn", ""),
+                        "ycdn": row.get("ycdn", ""),
+                    })
+
+    result = pd.DataFrame(rows)
+
+    save_path = os.path.join(OUT_DIR, "일식_원본후보_확인.csv")
+    result.to_csv(save_path, index=False, encoding="utf-8-sig")
+
+    print("저장 완료:", save_path)
+    print("후보 개수:", len(result))
+
+    if not result.empty:
+        print(result[["hit_keys", "mc_bzc1_nm", "mc_bzc2_nm", "mc_bzc3_nm", "store_name", "cell_id"]].head(30))
+
+
+if __name__ == "__main__":
+    main()

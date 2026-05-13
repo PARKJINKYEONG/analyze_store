@@ -6,7 +6,7 @@ import branca.colormap as cm
 from pyproj import Transformer
 
 
-PROJECT_DIR = r"C:\Users\A\Desktop\Proj\store analysis"
+PROJECT_DIR = r"C:\Users\GAENG2\Desktop\analyze_store_main"
 OUT_DIR = os.path.join(PROJECT_DIR, "output_2023_2024")
 MAP_DIR = os.path.join(OUT_DIR, "maps")
 BOUNDARY_DIR = os.path.join(PROJECT_DIR, "data", "boundary")

@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from matplotlib import font_manager, rc
 
 
-PROJECT_DIR = r"C:\Users\A\Desktop\Proj\store analysis"
+PROJECT_DIR = r"C:\Users\GAENG2\Desktop\analyze_store_main"
 OUT_DIR = os.path.join(PROJECT_DIR, "output_2023_2024")
 PPT_DIR = os.path.join(OUT_DIR, "ppt_outputs")
 
