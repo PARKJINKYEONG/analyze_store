@@ -59,15 +59,19 @@ def get_month_folders():
     return sorted(folders)
 
 
-def find_file(folder, keyword):
+def find_file(folder, keywords):
     files = (
         glob.glob(os.path.join(folder, "*.csv"))
         + glob.glob(os.path.join(folder, "*.xlsx"))
         + glob.glob(os.path.join(folder, "*.xls"))
     )
 
+    if isinstance(keywords, str):
+        keywords = [keywords]
+
     for f in files:
-        if keyword in os.path.basename(f):
+        name = os.path.basename(f).lower()
+        if all(k.lower() in name for k in keywords):
             return f
 
     return None
@@ -125,78 +129,57 @@ def clean_numeric_series(s):
 def find_population_columns(df, pop_type):
     cols = list(df.columns)
 
-    exclude_keywords = [
-        "code", "cd", "id", "dong", "admi", "adm", "emd",
-        "date", "dt", "timezn", "time_cd", "year", "month",
-        "cell", "xcdn", "ycdn", "x_", "y_", "lon", "lat",
-        "시도", "시군구", "행정", "법정", "주소", "지역",
-    ]
-
     if pop_type == "home":
+        # h_m_*, h_f_* 패턴 (대소문자 무시)
         pop_cols = [
             c for c in cols
-            if str(c).startswith("H_")
+            if re.match(r"^h_[mf]_\d+$", str(c).lower())
         ]
 
     elif pop_type == "work":
         pop_cols = [
             c for c in cols
-            if str(c).startswith("W_")
+            if re.match(r"^w_[mf]_\d+$", str(c).lower())
         ]
 
     elif pop_type == "time_home":
         pop_cols = [
             c for c in cols
-            if str(c).startswith("H_")
-            or "home_pop" in str(c).lower()
-            or "h_pop" in str(c).lower()
+            if re.match(r"^h_[mf]_\d+$", str(c).lower())
         ]
 
     elif pop_type == "time_work":
         pop_cols = [
             c for c in cols
-            if str(c).startswith("W_")
-            or "work_pop" in str(c).lower()
-            or "w_pop" in str(c).lower()
+            if re.match(r"^w_[mf]_\d+$", str(c).lower())
         ]
 
     elif pop_type == "inflow":
-        include_keywords = [
-            "inflow",
-            "flow",
-            "pop",
-            "cnt",
-            "인구",
-            "유입",
-            "방문",
-            "유동",
+        # 기존 inflow 로직 유지
+        exclude_keywords = [
+            "code", "cd", "id", "dong", "admi", "adm", "emd",
+            "date", "dt", "timezn", "time_cd", "year", "month",
+            "cell", "xcdn", "ycdn", "x_", "y_", "lon", "lat",
+            "시도", "시군구", "행정", "법정", "주소", "지역",
         ]
+        include_keywords = ["inflow", "flow", "pop", "cnt", "인구", "유입", "방문", "유동"]
 
         pop_cols = []
         for c in cols:
             c_str = str(c).lower()
-
             if any(ex in c_str for ex in exclude_keywords):
                 continue
-
             if any(key in c_str for key in include_keywords):
                 pop_cols.append(c)
 
-        # 그래도 못 찾으면 숫자형 컬럼 중 코드/좌표/날짜 제외
         if not pop_cols:
             for c in cols:
                 c_str = str(c).lower()
-
                 if any(ex in c_str for ex in exclude_keywords):
                     continue
-
                 sample = clean_numeric_series(df[c])
-                max_val = sample.max()
-
-                # 인구값으로 보기 어려운 거대 코드값 제거
-                if 0 < max_val < 10_000_000:
+                if 0 < sample.max() < 10_000_000:
                     pop_cols.append(c)
-
     else:
         pop_cols = []
 
@@ -249,11 +232,17 @@ def preprocess_one_month(folder):
     if ym is None:
         return None
 
-    home_file = find_file(folder, "exist_dong_h")
-    work_file = find_file(folder, "exist_dong_w")
-    time_home_file = find_file(folder, "exist_time_pcell_h")
-    time_work_file = find_file(folder, "exist_time_pcell_w")
-    inflow_file = find_file(folder, "inflow")
+    home_file = find_file(folder, ["exist", "dong", "h"])
+    work_file = find_file(folder, ["exist", "dong", "w"])
+    time_home_file = find_file(folder, ["exist", "time", "h"])
+    time_work_file = find_file(folder, ["exist", "time", "w"])
+    inflow_file = find_file(folder, ["inflow"])
+
+    print("home_file:", home_file)
+    print("work_file:", work_file)
+    print("time_home_file:", time_home_file)
+    print("time_work_file:", time_work_file)
+    print("inflow_file:", inflow_file)
 
     base = pd.DataFrame(columns=["dong_code"])
 
@@ -313,10 +302,10 @@ def preprocess_one_month(folder):
     base["time_pop"] = base["time_home_pop"] + base["time_work_pop"]
 
     base["total_demand_pop"] = (
-        base["living_pop"] * 0.40
-        + base["work_pop"] * 0.25
+        base["home_pop"] * 0.30
+        + base["work_pop"] * 0.30
         + base["time_pop"] * 0.25
-        + base["inflow_pop"] * 0.10
+        + base["inflow_pop"] * 0.15
     )
 
     cols = [
