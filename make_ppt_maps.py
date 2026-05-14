@@ -15,7 +15,7 @@ from make_maps import (
     load_store_grid_count,
     make_map_summary,
     add_grid_heat_layer,
-    add_store_count_circle,
+    #add_store_count_circle,
 )
 
 
@@ -139,7 +139,7 @@ def make_ppt_single_map(boundary, result, cell, store_grid, map_name, categories
 
     colormap.add_to(m)
 
-    add_store_count_circle(m, gdf)
+    #add_store_count_circle(m, gdf)
 
     add_grid_heat_layer(
         m,

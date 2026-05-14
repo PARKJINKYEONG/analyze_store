@@ -4,10 +4,10 @@ import glob
 import numpy as np
 import pandas as pd
 
-BASE_DIR = r"E:\데이터"
+BASE_DIR = r"C:\Users\A\Desktop\데이터"
 POP_ROOT = os.path.join(BASE_DIR, "구미 유동인구 데이터")
 
-PROJECT_DIR = r"C:\Users\GAENG2\Desktop\analyze_store_main"
+PROJECT_DIR = r"C:\Users\A\Desktop\Proj\store analysis"
 OUT_DIR = os.path.join(PROJECT_DIR, "output_2023_2024")
 os.makedirs(OUT_DIR, exist_ok=True)
 
@@ -68,19 +68,19 @@ def normalize_code(x):
     if pd.isna(x):
         return ""
 
-    x = str(x).strip()
+    try:
+        x = str(int(float(str(x).replace(",", "").strip())))
+    except:
+        x = str(x).strip()
 
     if x.endswith(".0"):
         x = x[:-2]
 
-    try:
-        if "e" in x.lower():
-            x = str(int(float(x)))
-    except Exception:
-        pass
+    # 10자리 행정동코드면 뒤 2자리 제거해서 8자리로 통일
+    if len(x) == 10 and x.startswith("4719"):
+        x = x[:8]
 
     return x
-
 
 def clean_num(s):
     return (
@@ -248,6 +248,7 @@ def preprocess_one_month(folder):
             base[col] = 0
         base[col] = pd.to_numeric(base[col], errors="coerce").fillna(0)
 
+    base["living_pop"] = base["living_pop"].astype(float)
     # living_pop 파일이 없는 경우 대체
     base.loc[base["living_pop"] == 0, "living_pop"] = (
         base["home_pop"] + base["work_pop"]
@@ -287,6 +288,14 @@ def main():
         raise ValueError("처리된 인구 데이터가 없습니다.")
 
     result = pd.concat(all_months, ignore_index=True)
+
+    result = result.groupby(["dong_code", "year_month"], as_index=False).agg(
+        home_pop=("home_pop", "sum"),
+        work_pop=("work_pop", "sum"),
+        living_pop=("living_pop", "sum"),
+        inflow_pop=("inflow_pop", "sum"),
+        total_demand_pop=("total_demand_pop", "sum")
+    )
 
     result.to_csv(
         os.path.join(OUT_DIR, "population_monthly.csv"),

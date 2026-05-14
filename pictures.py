@@ -3,7 +3,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib import font_manager, rc
 
-PROJECT_DIR = r"C:\Users\GAENG2\Desktop\analyze_store_main"
+PROJECT_DIR = r"C:\Users\A\Desktop\Proj\store analysis"
 OUT_DIR = os.path.join(PROJECT_DIR, "output_2023_2024")
 VIZ_DIR = os.path.join(OUT_DIR, "visuals")
 os.makedirs(VIZ_DIR, exist_ok=True)
@@ -79,6 +79,21 @@ def visualize_year(year):
 
     result = pd.read_csv(result_file, encoding="utf-8-sig")
     top = pd.read_csv(top_file, encoding="utf-8-sig")
+
+    # 잘못된 행정동 제거
+    result["dong"] = result["dong"].astype(str).str.strip()
+    top["dong"] = top["dong"].astype(str).str.strip()
+
+    invalid_dong = [
+        "",
+        "b''",
+        "b' '",
+        "nan",
+        "None"
+    ]
+
+    result = result[~result["dong"].isin(invalid_dong)].copy()
+    top = top[~top["dong"].isin(invalid_dong)].copy()
 
     # 1. 음식점/카페 소비금액 TOP10
     for group in ["음식점", "카페"]:
@@ -229,6 +244,21 @@ def visualize_integrated():
 
     result = pd.read_csv(result_path, encoding="utf-8-sig")
     top = pd.read_csv(top_path, encoding="utf-8-sig")
+
+    # 잘못된 행정동 제거
+    result["dong"] = result["dong"].astype(str).str.strip()
+    top["dong"] = top["dong"].astype(str).str.strip()
+
+    invalid_dong = [
+        "",
+        "b''",
+        "b' '",
+        "nan",
+        "None"
+    ]
+
+    result = result[~result["dong"].isin(invalid_dong)].copy()
+    top = top[~top["dong"].isin(invalid_dong)].copy()
 
     # =====================================================
     # 1. 행정동별 소비 규모 분석

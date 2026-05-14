@@ -6,7 +6,7 @@ import branca.colormap as cm
 from pyproj import Transformer
 
 
-PROJECT_DIR = r"C:\Users\GAENG2\Desktop\analyze_store_main"
+PROJECT_DIR = r"C:\Users\A\Desktop\Proj\store analysis"
 OUT_DIR = os.path.join(PROJECT_DIR, "output_2023_2024")
 MAP_DIR = os.path.join(OUT_DIR, "maps")
 BOUNDARY_DIR = os.path.join(PROJECT_DIR, "data", "boundary")
@@ -234,7 +234,11 @@ def make_map_summary(df, map_name, categories):
             avg_total_demand_pop=("avg_total_demand_pop", "mean"),
             store_count=("store_count", "sum"),
             category_count=("category", "nunique"),
-            avg_location_score=("location_score", "mean")
+            avg_location_score=("location_score", "mean"),
+
+            external_ratio=("external_ratio", "mean"),
+            sales_shortage=("sales_shortage", "mean"),
+            amount_growth_24_vs_23=("amount_growth_24_vs_23", "mean")
         )
     )
 
@@ -326,6 +330,52 @@ def make_grid_bounds(x, y, transformer, size=500):
 
     return bounds
 
+def add_index_legend(m, title, metric_name, description):
+    legend_html = f"""
+    <div style="
+        position: fixed;
+        bottom: 30px;
+        right: 30px;
+        z-index: 9999;
+        background-color: white;
+        padding: 12px;
+        border: 2px solid gray;
+        border-radius: 6px;
+        font-size: 12px;
+        min-width:230px;
+    ">
+        <b>지도 해석</b><br>
+        진한 색: {metric_name} 상대적으로 높음<br>
+        연한 색: {metric_name} 상대적으로 낮음<br><br><br>
+        
+        <b>{title}</b><br><br>
+
+        <span style="background:#fff5f0; padding:2px 12px;"></span>
+        0.00 ~ 0.10 : 매우 낮음<br>
+
+        <span style="background:#fee0d2; padding:2px 12px;"></span>
+        0.10 ~ 0.25 : 낮음<br>
+
+        <span style="background:#fcbba1; padding:2px 12px;"></span>
+        0.25 ~ 0.45 : 보통 이하<br>
+
+        <span style="background:#fc9272; padding:2px 12px;"></span>
+        0.45 ~ 0.65 : 보통<br>
+
+        <span style="background:#fb6a4a; padding:2px 12px;"></span>
+        0.65 ~ 0.85 : 높음<br>
+
+        <span style="background:#a50f15; padding:2px 12px;"></span>
+        0.85 ~ 1.00 : 매우 높음<br>
+
+
+        <hr>
+        <b>지표:</b> {metric_name}<br>
+        ※ {description}
+    </div>
+    """
+
+    m.get_root().html.add_child(folium.Element(legend_html))
 
 def add_grid_heat_layer(m, cell, categories, target_dongs=None, layer_name="격자 소비 밀집도", store_grid=None):
     if cell.empty:
@@ -395,7 +445,7 @@ def add_grid_heat_layer(m, cell, categories, target_dongs=None, layer_name="격�
     <div style="
         position: fixed;
         bottom: 30px;
-        right: 30px;
+        left: 30px;
         z-index: 9999;
         background-color: white;
         padding: 12px;
@@ -437,7 +487,7 @@ def add_grid_heat_layer(m, cell, categories, target_dongs=None, layer_name="격�
         <b>격자 소비금액:</b> {r['grid_amount']:,.0f}원<br>
         <b>격자 소비건수:</b> {r['grid_count']:,.0f}<br>
         <b>격자 소비자수:</b> {r['grid_customer']:,.0f}<br>
-        <b>격자 내 업소 수:</b> {r['grid_store_count']:,.0f}개<br>
+
         """
 
         folium.Polygon(
@@ -616,9 +666,8 @@ def make_activation_map(boundary, summary, map_name, cell, categories, store_gri
             "fillColor": colormap(value),
             "color": "black",
             "weight": 2.5,
-            "fillOpacity": 0.50 if raw_value > 0 else 0.10,
+            "fillOpacity": 0.50 if raw_value >= 0 else 0.10,
         }
-
     folium.GeoJson(
         gdf,
         name=map_name,
@@ -654,29 +703,15 @@ def make_activation_map(boundary, summary, map_name, cell, categories, store_gri
 
     colormap.add_to(m)
 
+    add_index_legend(
+        m,
+        title=f"{map_name} 인구 대비 소비 활성도 행정동 색상 구간",
+        metric_name="인구 대비 소비 활성도",
+        description="해당 업종의 소비금액을 평균 총수요인구로 나눈 상대지수"
+    )    
+
     non_zoom_gdf = gdf[~gdf["dong"].isin(ZOOM_DONGS)].copy()
     #add_store_count_circle(m, non_zoom_gdf)
-
-    legend_html = """
-    <div style="
-        position: fixed;
-        bottom: 30px;
-        left: 30px;
-        z-index: 9999;
-        background-color: white;
-        padding: 12px;
-        border: 2px solid gray;
-        border-radius: 6px;
-        font-size: 13px;">
-        <b>지도 해석</b><br>
-        진한 색: 인구 대비 소비 활성도 상대적으로 높음<br>
-        연한 색: 인구 대비 소비 활성도 상대적으로 낮음<br>
-        원 안 숫자: 해당 업종 업소 수<br>
-        ※ 색은 업종별 지도 내 상대 비교 기준
-    </div>
-    """
-    m.get_root().html.add_child(folium.Element(legend_html))
-
 
     add_grid_heat_layer(
         m,
@@ -759,11 +794,17 @@ def make_activation_map(boundary, summary, map_name, cell, categories, store_gri
         colormap.add_to(zoom_map)
         #add_store_count_circle(zoom_map, zoom_gdf)
 
+        add_index_legend(                m,
+            title=f"{map_name} 입지추천점수",
+            metric_name="입지추천점수",
+            description="소비규모, 수요인구, 성장률, 외부유입, 공급부족을 종합한 상대지수"
+        )
+
         zoom_legend_html = """
         <div style="
             position: fixed;
             bottom: 30px;
-            left: 30px;
+            right: 30px;
             z-index: 9999;
             background-color: white;
             padding: 12px;
@@ -772,8 +813,31 @@ def make_activation_map(boundary, summary, map_name, cell, categories, store_gri
             font-size: 13px;">
             <b>도심권 확대 지도</b><br>
             진한 색: 인구 대비 소비 활성도 높음<br>
-            연한 색: 인구 대비 소비 활성도 낮음<br>
-            원 안 숫자: 해당 업종 업소 수
+            연한 색: 인구 대비 소비 활성도 낮음<br><br><br>
+
+        <b>한식 인구 대비 소비 활성도 행정동 색상 구간</b><br><br>
+
+        <span style="background:#fff5f0; padding:2px 12px;"></span>
+        0.00 ~ 0.10 : 매우 낮음<br>
+
+        <span style="background:#fee0d2; padding:2px 12px;"></span>
+        0.10 ~ 0.25 : 낮음<br>
+
+        <span style="background:#fcbba1; padding:2px 12px;"></span>
+        0.25 ~ 0.45 : 보통 이하<br>
+
+        <span style="background:#fc9272; padding:2px 12px;"></span>
+        0.45 ~ 0.65 : 보통<br>
+
+        <span style="background:#fb6a4a; padding:2px 12px;"></span>
+        0.65 ~ 0.85 : 높음<br>
+
+        <span style="background:#a50f15; padding:2px 12px;"></span>
+        0.85 ~ 1.00 : 매우 높음<br>
+
+        <hr>
+        <b>지표:</b> 인구 대비 소비 활성도<br>
+        ※ 해당 업종의 소비금액을 평균 총수요인구로 나눈 상대지수
         </div>
         """
         zoom_map.get_root().html.add_child(folium.Element(zoom_legend_html))
@@ -800,6 +864,306 @@ def make_activation_map(boundary, summary, map_name, cell, categories, store_gri
 
     return gdf
 
+def make_recommendation_score_map(boundary, summary, map_name, cell, categories):
+    gdf = boundary.merge(
+        summary,
+        on="dong_key",
+        how="left",
+        suffixes=("_boundary", "_data")
+    )
+
+    if "dong_data" in gdf.columns:
+        gdf["dong"] = gdf["dong_data"].fillna(gdf["dong_boundary"])
+    else:
+        gdf["dong"] = gdf["dong_boundary"]
+
+    fill_cols = [
+        "total_amount", "total_count", "total_customer",
+        "avg_total_demand_pop", "store_count",
+        "category_count", "avg_location_score",
+        "consumption_activation"
+    ]
+
+    for col in fill_cols:
+        if col not in gdf.columns:
+            gdf[col] = 0
+        gdf[col] = pd.to_numeric(gdf[col], errors="coerce").fillna(0)
+
+    # 입지추천점수 기준 정규화
+    valid = gdf["avg_location_score"] > 0
+    gdf["recommend_norm"] = 0.0
+
+    if valid.sum() > 0:
+        values = gdf.loc[valid, "avg_location_score"]
+        vmin = values.quantile(0.05)
+        vmax = values.quantile(0.95)
+
+        if vmax == vmin:
+            gdf.loc[valid, "recommend_norm"] = 0.6
+        else:
+            gdf.loc[valid, "recommend_norm"] = (
+                (gdf.loc[valid, "avg_location_score"] - vmin) / (vmax - vmin)
+            ).clip(0, 1)
+
+    center_geom = gdf.to_crs(epsg=5179).geometry.centroid.to_crs(epsg=4326)
+    center = [center_geom.y.mean(), center_geom.x.mean()]
+
+    m = folium.Map(location=center, zoom_start=12, tiles="cartodbpositron")
+
+    folium.TileLayer(
+        tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+        attr="Esri",
+        name="위성지도",
+        overlay=False,
+        control=True
+    ).add_to(m)
+
+    colormap = cm.LinearColormap(
+        colors=[
+            "#fff5f0",
+            "#fee0d2",
+            "#fcbba1",
+            "#fc9272",
+            "#fb6a4a",
+            "#de2d26",
+            "#a50f15"
+        ],
+        vmin=0,
+        vmax=1,
+        caption=f"{map_name} 입지추천점수"
+    )
+
+    def style_function(feature):
+        value = feature["properties"].get("recommend_norm", 0)
+        raw_score = feature["properties"].get("avg_location_score", 0)
+
+        return {
+            "fillColor": colormap(value),
+            "color": "black",
+            "weight": 2.5,
+            "fillOpacity": 0.58 if raw_score >= 0 else 0.12,
+        }
+
+    folium.GeoJson(
+        gdf,
+        name=f"{map_name}_입지추천점수",
+        style_function=style_function,
+        tooltip=folium.GeoJsonTooltip(
+            fields=[
+                "dong",
+                "avg_location_score",
+                "recommend_norm",
+                "total_amount",
+                "store_count",
+                "avg_total_demand_pop",
+                "consumption_activation",
+                "total_count",
+                "total_customer"
+            ],
+            aliases=[
+                "행정동",
+                "평균 입지추천점수",
+                "추천점수 상대지수",
+                "총 소비금액",
+                "현재 업소 수",
+                "평균 총수요인구",
+                "인구 대비 소비활성도",
+                "소비건수",
+                "소비자수"
+            ],
+            localize=True
+        )
+    ).add_to(m)
+
+    colormap.add_to(m)
+
+    add_index_legend(
+        m,
+        title=f"{map_name} 입지추천점수 행정동 색상 구간",
+        metric_name="입지추천점수",
+        description="소비규모, 수요인구, 성장률, 외부유입, 공급부족을 종합한 상대지수"
+    )
+
+    #add_store_count_circle(m, gdf)
+
+    add_grid_heat_layer(
+        m,
+        cell,
+        categories,
+        target_dongs=None,
+        layer_name=f"{map_name} 격자 소비 밀집도"
+    )
+
+    folium.LayerControl().add_to(m)
+
+    save_path = os.path.join(
+        MAP_DIR,
+        f"{safe_name(map_name)}_입지추천점수지도.html"
+    )
+
+    m.save(save_path)
+    print("입지추천 지도 저장:", save_path)
+
+def make_score_map(
+    boundary,
+    summary,
+    map_name,
+    value_col,
+    legend_name,
+    save_suffix,
+    color_caption,
+    cell,
+    categories,
+    store_grid=None
+):
+    gdf = boundary.merge(
+        summary,
+        on="dong_key",
+        how="left"
+    )
+
+    if "dong_y" in gdf.columns:
+        gdf["dong"] = gdf["dong_y"].fillna(gdf["dong_x"])
+    elif "dong_x" in gdf.columns:
+        gdf["dong"] = gdf["dong_x"]
+    
+
+    if value_col not in gdf.columns:
+        gdf[value_col] = 0
+
+    gdf[value_col] = pd.to_numeric(
+        gdf[value_col],
+        errors="coerce"
+    ).fillna(0)
+
+    valid = gdf[value_col] > 0
+
+    gdf["norm"] = 0.0
+
+    if valid.sum() > 0:
+        values = gdf.loc[valid, value_col]
+
+        vmin = values.quantile(0.05)
+        vmax = values.quantile(0.95)
+
+        if vmax == vmin:
+            gdf.loc[valid, "norm"] = 0.6
+        else:
+            gdf.loc[valid, "norm"] = (
+                (gdf.loc[valid, value_col] - vmin)
+                / (vmax - vmin)
+            ).clip(0, 1)
+            gdf["norm"] = gdf["norm"].round(3)
+
+    center_geom = (
+        gdf.to_crs(epsg=5179)
+        .geometry.centroid
+        .to_crs(epsg=4326)
+    )
+
+    center = [
+        center_geom.y.mean(),
+        center_geom.x.mean()
+    ]
+
+    m = folium.Map(
+        location=center,
+        zoom_start=12,
+        tiles="cartodbpositron"
+    )
+
+    folium.TileLayer(
+        tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+        attr="Esri",
+        name="위성지도",
+        overlay=False,
+        control=True
+    ).add_to(m)
+
+    colormap = cm.LinearColormap(
+        colors=[
+            "#fff5f0",
+            "#fee0d2",
+            "#fcbba1",
+            "#fc9272",
+            "#fb6a4a",
+            "#de2d26",
+            "#a50f15"
+        ],
+        vmin=0,
+        vmax=1,
+        caption=color_caption
+    )
+
+    def style_function(feature):
+        value = feature["properties"].get("norm", 0)
+        raw_value = feature["properties"].get(value_col, 0)
+
+        return {
+            "fillColor": colormap(value),
+            "color": "black",
+            "weight": 2.5,
+            "fillOpacity": 0.50 if raw_value >= 0 else 0.10,
+        }
+
+    folium.GeoJson(
+        gdf,
+        name = map_name,
+        style_function=style_function,
+        tooltip=folium.GeoJsonTooltip(
+            fields=[
+                "dong",
+                value_col,
+                "norm",
+                "total_amount",
+                "avg_total_demand_pop",
+                "store_count",
+                "total_count",
+                "total_customer"
+            ],
+            aliases=[
+                "행정동",
+                f"{legend_name} 실제값",
+                "색상 상대지수",
+                "총 소비금액",
+                "평균 총수요인구",
+                "현재 업소 수",
+                "소비건수",
+                "소비자수"
+            ],
+            localize=True
+        )
+    ).add_to(m)
+
+    colormap.add_to(m)
+
+    add_index_legend(
+        m,
+        title=f"{map_name} {legend_name} 행정동 색상 구간",
+        metric_name=legend_name,
+        description=f"{legend_name} 값을 0~1 사이로 정규화한 상대지수"
+    )
+
+    save_path = os.path.join(
+        MAP_DIR,
+        f"{safe_name(map_name)}_{save_suffix}.html"
+    )
+
+    add_grid_heat_layer(
+        m,
+        cell,
+        categories,
+        target_dongs=None,
+        layer_name=f"{map_name} 격자 소비 밀집도",
+        store_grid=store_grid
+    )
+
+    folium.LayerControl().add_to(m)
+
+    m.save(save_path)
+
+    print("저장:", save_path)
+
 def make_all_categories_one_map(boundary, result, cell):
     print("통합 레이어 지도 생성 중...")
 
@@ -819,11 +1183,7 @@ def make_all_categories_one_map(boundary, result, cell):
     center_geom = boundary.to_crs(epsg=5179).geometry.centroid.to_crs(epsg=4326)
     center = [center_geom.y.mean(), center_geom.x.mean()]
 
-    m = folium.Map(
-        location=center,
-        zoom_start=12,
-        tiles="cartodbpositron"
-    )
+    m = folium.Map(location=center, zoom_start=12, tiles="cartodbpositron")
 
     folium.TileLayer(
         tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
@@ -900,10 +1260,15 @@ def make_all_categories_one_map(boundary, result, cell):
                 "fillColor": cmap(value),
                 "color": "black",
                 "weight": 2.0,
-                "fillOpacity": 0.75 if raw_value > 0 else 0.08,
+                "fillOpacity": 0.75 if raw_value >= 0 else 0.08,
             }
 
-        fg = folium.FeatureGroup(name=map_name, show=False)
+        layer_display_name = f"{map_name}"
+
+        fg = folium.FeatureGroup(
+            name=layer_display_name,
+            show=True
+        )
 
         folium.GeoJson(
             gdf,
@@ -950,7 +1315,7 @@ def make_all_categories_one_map(boundary, result, cell):
     <div style="
         position: fixed;
         bottom: 30px;
-        left: 30px;
+        right: 30px;
         z-index: 9999;
         background-color: white;
         padding: 12px;
@@ -965,7 +1330,7 @@ def make_all_categories_one_map(boundary, result, cell):
     """
     m.get_root().html.add_child(folium.Element(legend_html))
 
-    folium.LayerControl(collapsed=False).add_to(m)
+    folium.LayerControl().add_to(m)
 
     save_path = os.path.join(
         MAP_DIR,
@@ -1020,7 +1385,76 @@ def main():
         )
 
         make_activation_map(boundary, summary, map_name, cell, categories, store_grid)
+        make_recommendation_score_map(boundary, summary, map_name, cell, categories)
+                # 소비규모 지도
+        make_score_map(
+            boundary,
+            summary,
+            map_name,
+            "total_amount",
+            "총 소비금액",
+            "소비규모지도",
+            f"{map_name} 소비 규모",
+            cell,
+            categories,
+            store_grid
+        )
 
+        # 외부유입 지도
+        make_score_map(
+            boundary,
+            summary,
+            map_name,
+            "external_ratio",
+            "외부 유입 비율",
+            "외부유입지도",
+            f"{map_name} 외부 유입 비율",
+            cell,
+            categories,
+            store_grid
+        )
+
+        # 공급부족 지도
+        make_score_map(
+            boundary,
+            summary,
+            map_name,
+            "sales_shortage",
+            "공급 부족도",
+            "공급부족지도",
+            f"{map_name} 공급 부족도",
+            cell,
+            categories,
+            store_grid
+        )
+
+        # 성장률 지도
+        make_score_map(
+            boundary,
+            summary,
+            map_name,
+            "amount_growth_24_vs_23",
+            "소비 성장률",
+            "성장률지도",
+            f"{map_name} 소비 성장률",
+            cell,
+            categories,
+            store_grid
+        )
+
+        # 경쟁도 지도
+        make_score_map(
+            boundary,
+            summary,
+            map_name,
+            "store_count",
+            "업소 수",
+            "업소밀집지도",
+            f"{map_name} 업소 밀집도",
+            cell,
+            categories,
+            store_grid
+        )
         all_summary.append(summary.assign(map_name=map_name))
 
     final = pd.concat(all_summary, ignore_index=True)

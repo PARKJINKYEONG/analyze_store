@@ -4,7 +4,8 @@ import glob
 import numpy as np
 import pandas as pd
 
-PROJECT_DIR = r"C:\Users\GAENG2\Desktop\analyze_store_main"
+
+PROJECT_DIR = r"C:\Users\A\Desktop\Proj\store analysis"
 OUT_DIR = os.path.join(PROJECT_DIR, "output_2023_2024")
 STORE_DIR = os.path.join(PROJECT_DIR, "data", "store")
 
@@ -443,7 +444,6 @@ def make_pop_summary(pop, consume, year=None):
     pop_summary = temp.groupby("dong_code", as_index=False).agg(
         avg_living_pop=("living_pop", "mean"),
         avg_work_pop=("work_pop", "mean"),
-        avg_time_pop=("time_pop", "mean"),
         avg_inflow_pop=("inflow_pop", "mean"),
         avg_total_demand_pop=("total_demand_pop", "mean")
     )
@@ -485,7 +485,6 @@ def score_market(base, use_growth=True):
         "amount_growth_24_vs_23",
         "avg_living_pop",
         "avg_work_pop",
-        "avg_time_pop",
         "avg_inflow_pop",
         "avg_total_demand_pop",
         "external_ratio",
@@ -759,7 +758,7 @@ def analyze_integrated(pop, consume, inflow, supply):
 
 
 def main():
-    pop = pd.read_csv(os.path.join(OUT_DIR, "population_monthly2.csv"), encoding="utf-8-sig")
+    pop = pd.read_csv(os.path.join(OUT_DIR, "population_monthly.csv"), encoding="utf-8-sig")
     consume = pd.read_csv(os.path.join(OUT_DIR, "consumption_monthly_dong.csv"), encoding="utf-8-sig")
 
     consume = consume[consume["category"].isin(TARGET_CATEGORIES)].copy()
