@@ -401,6 +401,14 @@ def preprocess_main_consumption(folder):
         df["count"] = pd.to_numeric(df[count_col], errors="coerce").fillna(0) if count_col else 0
         df["customer"] = pd.to_numeric(df[customer_col], errors="coerce").fillna(0) if customer_col else 0
 
+        if "sm_mc_yn" in df.columns:
+            df["store_count"] = pd.to_numeric(
+            df["sm_mc_yn"],
+            errors="coerce"
+        ).fillna(0)
+        else:
+            df["store_count"] = 0
+
         if "cell_id" not in df.columns:
             df["cell_id"] = np.nan
         if "xcdn" not in df.columns:
@@ -408,9 +416,11 @@ def preprocess_main_consumption(folder):
         if "ycdn" not in df.columns:
             df["ycdn"] = np.nan
 
+        df["store_count"] = pd.to_numeric(df["sm_mc_yn"], errors="coerce").fillna(0)
+
         frames.append(df[[
             "year_month", "dong_code", "dong", "cell_id", "xcdn", "ycdn",
-            "category", "amount", "count", "customer"
+            "category", "amount", "count", "customer", "store_count"
         ]])
 
     if not frames:
@@ -568,7 +578,34 @@ def main():
     # 4분할 저장 (엑셀로 열어볼 용도)
     split_by_period(consume, "consumption_monthly_cell")
 
-    # 행정동 단위 집계
+    # =========================================================
+    # 업소 수 계산
+    # 같은 업소가 일별/시간대별로 반복 집계되므로
+    # 월 + 행정동 + 업종 + cell_id 기준 최대값만 사용
+    # =========================================================
+
+    grid_store = consume.groupby(
+        ["year_month", "dong_code", "dong", "category", "cell_id"],
+        as_index=False
+    ).agg(
+        store_count=("store_count", "max")
+    )
+
+    # =========================================================
+    # 행정동별 / 업종별 실제 업소 수 계산
+    # =========================================================
+
+    store_supply = grid_store.groupby(
+        ["year_month", "dong_code", "dong", "category"],
+        as_index=False
+    ).agg(
+        store_count=("store_count", "sum")
+    )
+
+    # =========================================================
+    # 소비 데이터 집계
+    # =========================================================
+
     dong_monthly = consume.groupby(
         ["year_month", "dong_code", "dong", "category"],
         as_index=False
@@ -576,6 +613,32 @@ def main():
         amount=("amount", "sum"),
         count=("count", "sum"),
         customer=("customer", "sum")
+    )
+
+    # =========================================================
+    # 업소 수 merge
+    # =========================================================
+
+    dong_monthly = dong_monthly.merge(
+        store_supply,
+        on=["year_month", "dong_code", "dong", "category"],
+        how="left"
+    )
+
+    dong_monthly["store_count"] = (
+        dong_monthly["store_count"]
+        .fillna(0)
+        .astype(int)
+    )
+
+    # =========================================================
+    # store_supply 저장
+    # =========================================================
+
+    store_supply.to_csv(
+        os.path.join(OUT_DIR, "store_supply.csv"),
+        index=False,
+        encoding="utf-8-sig"
     )
     dong_monthly.to_csv(
         os.path.join(OUT_DIR, "consumption_monthly_dong.csv"),
@@ -610,79 +673,6 @@ def main():
 
     print("\n소비 전처리 완료")
 
-def main():
-    main_frames = []
-    age_frames = []
-    inflow_frames = []
-
-    for folder in get_month_folders():
-        print("처리 중:", folder)
-
-        main_df = preprocess_main_consumption(folder)
-        if not main_df.empty:
-            main_frames.append(main_df)
-
-        age_df = preprocess_age_consumption(folder)
-        if not age_df.empty:
-            age_frames.append(age_df)
-
-        inflow_df = preprocess_inflow_consumption(folder)
-        if not inflow_df.empty:
-            inflow_frames.append(inflow_df)
-
-    consume = pd.concat(main_frames, ignore_index=True)
-
-    # 전체 통합본 (기존 유지 - map.py가 이 파일을 읽음)
-    consume.to_csv(
-        os.path.join(OUT_DIR, "consumption_monthly_cell.csv"),
-        index=False,
-        encoding="utf-8-sig"
-    )
-
-    # 4분할 저장 (엑셀로 열어볼 용도)
-    split_by_period(consume, "consumption_monthly_cell")
-
-    # 행정동 단위 집계
-    dong_monthly = consume.groupby(
-        ["year_month", "dong_code", "dong", "category"],
-        as_index=False
-    ).agg(
-        amount=("amount", "sum"),
-        count=("count", "sum"),
-        customer=("customer", "sum")
-    )
-    dong_monthly.to_csv(
-        os.path.join(OUT_DIR, "consumption_monthly_dong.csv"),
-        index=False,
-        encoding="utf-8-sig"
-    )
-
-    # 행정동 집계본도 4분할 저장
-    split_by_period(dong_monthly, "consumption_monthly_dong")
-
-    if inflow_frames:
-        inflow = pd.concat(inflow_frames, ignore_index=True)
-
-        inflow_summary = inflow.groupby(
-            ["year_month", "dong_code", "dong", "category"],
-            as_index=False
-        ).agg(
-            external_amount=("amount", lambda x: x[inflow.loc[x.index, "is_external"]].sum()),
-            total_amount=("amount", "sum")
-        )
-
-        inflow_summary["external_ratio"] = (
-            inflow_summary["external_amount"]
-            / inflow_summary["total_amount"].replace(0, np.nan)
-        ).fillna(0)
-
-        inflow_summary.to_csv(
-            os.path.join(OUT_DIR, "consumption_inflow_summary.csv"),
-            index=False,
-            encoding="utf-8-sig"
-        )
-
-    print("\n소비 전처리 완료")
 
 
 if __name__ == "__main__":
