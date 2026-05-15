@@ -5,11 +5,11 @@ import numpy as np
 import pandas as pd
 
 
-BASE_DIR = "C:\\Users\\A\\Desktop\\데이터"
+BASE_DIR = r"E:\데이터"
 CONSUME_ROOT = os.path.join(BASE_DIR, "구미 소비데이터")
 
 
-PROJECT_DIR = r"C:\Users\A\Desktop\Proj\store analysis"
+PROJECT_DIR = r"C:\Users\Gaeng2\Desktop\Proj\store analysis"
 OUT_DIR = os.path.join(PROJECT_DIR, "output_2023_2024")
 
 os.makedirs(OUT_DIR, exist_ok=True)
@@ -18,7 +18,7 @@ YEARS = [2023, 2024]
 
 TARGET_CATEGORIES = [
     "한식", "중식", "일식", "양식", "패스트푸드",
-    "기타음식점", "뷔페", "커피전문점", "제과점/아이스크림"
+    "기타음식점", "커피전문점", "제과점/아이스크림"
 ]
 
 
@@ -178,7 +178,7 @@ def classify_store_name(store_name, addr="", map_category=""):
 
     full_text = f"{store} {addr} {map_category}"
 
-     # =========================================
+    # =========================================
     # 패스트푸드
     # =========================================
     if any(x in full_text for x in [
@@ -327,7 +327,6 @@ def classify_store_name(store_name, addr="", map_category=""):
     ]):
         return "한식"
 
-
     # =========================================
     # 기타
     # =========================================
@@ -339,13 +338,11 @@ def find_amount_col(df):
             return c
     return None
 
-
 def find_count_col(df):
     for c in ["us_cnt", "이용건수", "사용건수", "lc_us_cnt"]:
         if c in df.columns:
             return c
     return None
-
 
 def find_customer_col(df):
     for c in ["cust_cnt", "이용자수", "고객수", "lc_cst_cnt"]:
@@ -366,7 +363,6 @@ def normalize_code(x):
     if len(x) == 10 and x.startswith("4719"):
         x = x[:8]
     return x
-
 
 def preprocess_main_consumption(folder):
     ym = ym_from_folder(folder)
@@ -428,53 +424,6 @@ def preprocess_main_consumption(folder):
 
     return pd.concat(frames, ignore_index=True)
 
-
-def preprocess_age_consumption(folder):
-    ym = ym_from_folder(folder)
-    files = glob.glob(os.path.join(folder, "*DD_R_4*"))
-
-    frames = []
-
-    for f in files:
-        if "DD2" in os.path.basename(f):
-            continue
-
-        df = read_table_auto(f)
-
-        amount_col = find_amount_col(df)
-        count_col = find_count_col(df)
-        customer_col = find_customer_col(df)
-
-        if amount_col is None:
-            continue
-
-        df["category"] = df.apply(classify_category, axis=1)
-        df = df[df["category"].isin(TARGET_CATEGORIES)].copy()
-
-        if df.empty:
-            continue
-
-        df["year_month"] = ym
-        df["dong_code"] = df["mc_ad3"].apply(normalize_code) if "mc_ad3" in df.columns else ""
-        df["dong"] = df["mc_ad3_nm"] if "mc_ad3_nm" in df.columns else df["dong_code"]
-        df["sex"] = df["cst_sex"] if "cst_sex" in df.columns else np.nan
-        df["age"] = df["cat_age"] if "cat_age" in df.columns else np.nan
-
-        df["amount"] = pd.to_numeric(df[amount_col], errors="coerce").fillna(0)
-        df["count"] = pd.to_numeric(df[count_col], errors="coerce").fillna(0) if count_col else 0
-        df["customer"] = pd.to_numeric(df[customer_col], errors="coerce").fillna(0) if customer_col else 0
-
-        frames.append(df[[
-            "year_month", "dong_code", "dong", "category",
-            "sex", "age", "amount", "count", "customer"
-        ]])
-
-    if not frames:
-        return pd.DataFrame()
-
-    return pd.concat(frames, ignore_index=True)
-
-
 def preprocess_inflow_consumption(folder):
     ym = ym_from_folder(folder)
     files = glob.glob(os.path.join(folder, "*DD2_R_3*")) + glob.glob(os.path.join(folder, "*DD_R_3*"))
@@ -523,32 +472,8 @@ def preprocess_inflow_consumption(folder):
 
     return pd.concat(frames, ignore_index=True)
 
-def split_by_period(df, prefix):
-    """year_month 기준 6개월 단위 4분할 저장"""
-    df = df.copy()
-    df["year_month"] = df["year_month"].astype(str)
-
-    periods = {
-        f"{prefix}_2023_H1": ("202301", "202306"),
-        f"{prefix}_2023_H2": ("202307", "202312"),
-        f"{prefix}_2024_H1": ("202401", "202406"),
-        f"{prefix}_2024_H2": ("202407", "202412"),
-    }
-
-    print(f"\n=== {prefix} 분포 진단 ===")
-    print(df["year_month"].value_counts().sort_index())
-    print(f"전체 행 수: {len(df):,}")
-
-    for name, (start, end) in periods.items():
-        sub = df[(df["year_month"] >= start) & (df["year_month"] <= end)].copy()
-        path = os.path.join(OUT_DIR, f"{name}.csv")
-        sub.to_csv(path, index=False, encoding="utf-8-sig")
-        print(f"저장: {os.path.basename(path)} | 행 수: {len(sub):,} | 월 범위: {sorted(sub['year_month'].unique())}")
-
-
 def main():
     main_frames = []
-    age_frames = []
     inflow_frames = []
 
     for folder in get_month_folders():
@@ -558,25 +483,17 @@ def main():
         if not main_df.empty:
             main_frames.append(main_df)
 
-        age_df = preprocess_age_consumption(folder)
-        if not age_df.empty:
-            age_frames.append(age_df)
-
         inflow_df = preprocess_inflow_consumption(folder)
         if not inflow_df.empty:
             inflow_frames.append(inflow_df)
 
     consume = pd.concat(main_frames, ignore_index=True)
 
-    # 전체 통합본 (기존 유지 - map.py가 이 파일을 읽음)
     consume.to_csv(
         os.path.join(OUT_DIR, "consumption_monthly_cell.csv"),
         index=False,
         encoding="utf-8-sig"
     )
-
-    # 4분할 저장 (엑셀로 열어볼 용도)
-    split_by_period(consume, "consumption_monthly_cell")
 
     # =========================================================
     # 업소 수 계산
@@ -646,9 +563,6 @@ def main():
         encoding="utf-8-sig"
     )
 
-    # 행정동 집계본도 4분할 저장
-    split_by_period(dong_monthly, "consumption_monthly_dong")
-
     if inflow_frames:
         inflow = pd.concat(inflow_frames, ignore_index=True)
 
@@ -672,8 +586,6 @@ def main():
         )
 
     print("\n소비 전처리 완료")
-
-
 
 if __name__ == "__main__":
     main()

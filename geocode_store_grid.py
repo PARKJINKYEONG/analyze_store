@@ -15,7 +15,7 @@ from analyze_market import (
 )
 
 
-PROJECT_DIR = r"C:\Users\A\Desktop\Proj\store analysis"
+PROJECT_DIR = r"C:\Users\Gaeng2\Desktop\Proj\store analysis"
 OUT_DIR = os.path.join(PROJECT_DIR, "output_2023_2024")
 STORE_DIR = os.path.join(PROJECT_DIR, "data", "store")
 

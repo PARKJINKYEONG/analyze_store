@@ -6,7 +6,7 @@ import branca.colormap as cm
 from pyproj import Transformer
 
 
-PROJECT_DIR = r"C:\Users\A\Desktop\Proj\store analysis"
+PROJECT_DIR = r"C:\Users\Gaeng2\Desktop\Proj\store analysis"
 OUT_DIR = os.path.join(PROJECT_DIR, "output_2023_2024")
 MAP_DIR = os.path.join(OUT_DIR, "maps")
 BOUNDARY_DIR = os.path.join(PROJECT_DIR, "data", "boundary")
@@ -155,8 +155,6 @@ def load_boundary():
 
     boundary["adm_cd"] = boundary[code_col].apply(normalize_code)
 
-    print("ADM_CD 확인:")
-    print(boundary[["adm_cd", name_col]].head(30))
 
     # ADM_CD 기준 행정동명 강제 매핑
     boundary["dong"] = boundary["adm_cd"].map(GUMI_DONG_CODE_MAP)
@@ -184,13 +182,9 @@ def load_boundary():
         .str.strip()
     )   
 
-
-    boundary["dong_key"] = boundary["dong"].apply(normalize_dong_name)
     boundary = boundary.to_crs(epsg=4326)
     boundary = boundary.dissolve(by=["dong_key", "dong"], as_index=False)
 
-    print(boundary[["dong_key", "dong"]].head(30))
-    print(boundary["dong"].unique())
 
     return boundary[["dong_key", "dong", "geometry"]]
 
@@ -203,7 +197,9 @@ def load_analysis_result():
 
     df = pd.read_csv(path, encoding="utf-8-sig")
 
-    df["dong_code"] = df["dong_code"].apply(normalize_code)
+    if "dong_code" in df.columns:
+        df["dong_code"] = df["dong_code"].apply(normalize_code)
+
     df["dong_key"] = df["dong"].apply(normalize_dong_name)
 
     for col in [
@@ -216,8 +212,42 @@ def load_analysis_result():
 
     df = df[df["category"].isin(TARGET_CATEGORIES)].copy()
 
+    # store_supply.csv 기준 업소 수로 최종 보정
+    supply = load_final_store_supply()
+
+    if not supply.empty:
+        df = df.drop(columns=["store_count"], errors="ignore")
+        df = df.merge(
+            supply,
+            on=["dong", "category"],
+            how="left"
+        )
+        df["store_count"] = pd.to_numeric(
+            df["store_count"],
+            errors="coerce"
+        ).fillna(0)
+
     return df
 
+def load_final_store_supply():
+    path = os.path.join(OUT_DIR, "store_supply.csv")
+
+    if not os.path.exists(path):
+        print("store_supply.csv 없음: 분석결과의 store_count 그대로 사용")
+        return pd.DataFrame(columns=["dong", "category", "store_count"])
+
+    supply = pd.read_csv(path, encoding="utf-8-sig")
+
+    supply["dong"] = supply["dong"].astype(str).str.strip()
+    supply["category"] = supply["category"].astype(str).str.strip()
+    supply["store_count"] = pd.to_numeric(
+        supply["store_count"],
+        errors="coerce"
+    ).fillna(0)
+
+    supply = supply.drop_duplicates(subset=["dong", "category"])
+
+    return supply
 
 def make_map_summary(df, map_name, categories):
     temp = df[df["category"].isin(categories)].copy()
@@ -267,15 +297,85 @@ def load_cell_consumption():
     cell["count"] = pd.to_numeric(cell["count"], errors="coerce").fillna(0)
     cell["customer"] = pd.to_numeric(cell["customer"], errors="coerce").fillna(0)
 
-    if "store_count" in cell.columns:
-        cell["store_count"] = pd.to_numeric(cell["store_count"], errors="coerce").fillna(0)
-    else:
-        cell["store_count"] = 0
-
     cell = cell.dropna(subset=["xcdn", "ycdn"])
 
     return cell
 
+def attach_grid_store_count(cell, result):
+    """
+    격자별 업소수 추정
+    - 행정동 업소수를 격자 소비비율 기반으로 분배
+    """
+
+    if cell.empty:
+        return cell
+
+    temp = cell.copy()
+
+    temp["amount"] = pd.to_numeric(
+        temp["amount"],
+        errors="coerce"
+    ).fillna(0)
+
+    # -------------------------------------------------
+    # 행정동+업종 총 소비금액
+    # -------------------------------------------------
+
+    dong_total = (
+        temp.groupby(["dong", "category"], as_index=False)
+        .agg(
+            dong_amount=("amount", "sum")
+        )
+    )
+
+    temp = temp.merge(
+        dong_total,
+        on=["dong", "category"],
+        how="left"
+    )
+
+    # -------------------------------------------------
+    # 소비 비율 계산
+    # -------------------------------------------------
+
+    temp["amount_ratio"] = (
+        temp["amount"]
+        / temp["dong_amount"].replace(0, pd.NA)
+    ).fillna(0)
+
+    # -------------------------------------------------
+    # analyze_market.py 결과의 업소수 사용
+    # -------------------------------------------------
+
+    supply = (
+        result.groupby(["dong", "category"], as_index=False)
+        .agg(
+            dong_store_count=("store_count", "mean")
+        )
+    )
+
+    temp = temp.merge(
+        supply,
+        on=["dong", "category"],
+        how="left",
+        suffixes=("","_supply")
+    )
+
+    temp["dong_store_count"] = pd.to_numeric(
+        temp["dong_store_count"],
+        errors="coerce"
+    ).fillna(0)
+
+    # -------------------------------------------------
+    # 격자별 업소수 배분
+    # -------------------------------------------------
+
+    temp["grid_store_count"] = (
+        temp["dong_store_count"]
+        * temp["amount_ratio"]
+    )
+
+    return temp
 
 def grid_color_by_value(value, vmin, vmax):
     if vmax <= vmin:
@@ -383,6 +483,7 @@ def add_grid_heat_layer(m, cell, categories, target_dongs=None, layer_name="격�
             grid_amount=("amount", "sum"),
             grid_count=("count", "sum"),
             grid_customer=("customer", "sum"),
+            grid_store_count=("grid_store_count", "sum")
         )
     )
 
@@ -461,8 +562,9 @@ def add_grid_heat_layer(m, cell, categories, target_dongs=None, layer_name="격�
         <b>격자 소비금액:</b> {r['grid_amount']:,.0f}원<br>
         <b>격자 소비건수:</b> {r['grid_count']:,.0f}건<br>
         <b>격자 소비자수:</b> {r['grid_customer']:,.0f}명<br>
-
+        <b>격자 업소수:</b> {round(r['grid_store_count'])}개<br>
         """
+        
 
         folium.Polygon(
             locations=bounds,
@@ -479,78 +581,6 @@ def add_grid_heat_layer(m, cell, categories, target_dongs=None, layer_name="격�
   
     fg.add_to(m)
     
-# def get_store_circle_color(value, max_value):
-#     if max_value <= 0:
-#         return "#fee8c8"
-
-#     ratio = value / max_value
-
-#     if ratio >= 0.75:
-#         return "#e34a33"   # 빨강
-#     elif ratio >= 0.50:
-#         return "#fdbb84"   # 진한 주황
-#     elif ratio >= 0.25:
-#         return "#fdd49e"   # 연한 주황
-#     else:
-#         return "#fee8c8"   # 노랑빛
-
-# def add_store_count_circle(m, gdf):
-#     label_gdf = gdf.copy()
-#     label_gdf["point"] = label_gdf.geometry.representative_point()
-
-#     max_store = label_gdf["store_count"].max()
-#     if max_store <= 0:
-#         max_store = 1
-
-#     for _, row in label_gdf.iterrows():
-#         if row["total_amount"] <= 0:
-#             continue
-
-#         lat = row["point"].y
-#         lon = row["point"].x
-
-#         store_count = int(round(row["store_count"], 0))
-
-#         # 업소 수에 따라 원 크기 조절
-#         radius = 12 + (store_count / max_store) * 24
-
-#         fill_color = get_store_circle_color(store_count, max_store)
-
-#         popup = f"""
-#         <b>행정동:</b> {row['dong']}<br>
-#         <b>업소 수:</b> {store_count:,}개<br>
-#         <b>총 소비금액:</b> {row['total_amount']:,.0f}원<br>
-#         <b>인구 대비 소비 활성도:</b> {row['consumption_activation']:.3f}
-#         """
-
-#         folium.CircleMarker(
-#             location=[lat, lon],
-#             radius=radius,
-#             color="#ffffff",
-#             weight=2,
-#             fill=True,
-#             fill_color=fill_color,
-#             fill_opacity=0.85,
-#             popup=folium.Popup(popup, max_width=300)
-#         ).add_to(m)
-
-#         html = f"""
-#         <div style="
-#             font-size:12px;
-#             font-weight:bold;
-#             color:#333333;
-#             text-align:center;
-#             transform: translate(-50%, -50%);
-#             white-space:nowrap;">
-#             {store_count}
-#         </div>
-#         """
-
-#         folium.Marker(
-#             location=[lat, lon],
-#             icon=folium.DivIcon(html=html)
-#         ).add_to(m)
-
 def make_activation_map(boundary, summary, map_name, cell, categories):
     gdf = boundary.merge(
         summary,
@@ -580,6 +610,12 @@ def make_activation_map(boundary, summary, map_name, cell, categories):
             gdf[col] = 0
         gdf[col] = pd.to_numeric(gdf[col], errors="coerce").fillna(0)
 
+    gdf["store_count"] = (
+        gdf["store_count"]
+        .round(0)
+        .astype(int)
+    )
+    
     # 색상 표현용 정규화: 업종별 지도마다 상대적 차이를 크게 보여줌
     valid = gdf["consumption_activation"] > 0
 
@@ -685,7 +721,6 @@ def make_activation_map(boundary, summary, map_name, cell, categories):
     )    
 
     non_zoom_gdf = gdf[~gdf["dong"].isin(ZOOM_DONGS)].copy()
-    #add_store_count_circle(m, non_zoom_gdf)
 
     add_grid_heat_layer(
         m,
@@ -765,7 +800,6 @@ def make_activation_map(boundary, summary, map_name, cell, categories):
         ).add_to(zoom_map)
 
         colormap.add_to(zoom_map)
-        #add_store_count_circle(zoom_map, zoom_gdf)
 
         add_index_legend(                m,
             title=f"{map_name} 입지추천점수",
@@ -773,48 +807,7 @@ def make_activation_map(boundary, summary, map_name, cell, categories):
             description="소비규모, 수요인구, 성장률, 외부유입, 공급부족을 종합한 상대지수"
         )
 
-        zoom_legend_html = """
-        <div style="
-            position: fixed;
-            bottom: 30px;
-            right: 30px;
-            z-index: 9999;
-            background-color: white;
-            padding: 12px;
-            border: 2px solid gray;
-            border-radius: 6px;
-            font-size: 13px;">
-            <b>도심권 확대 지도</b><br>
-            진한 색: 인구 대비 소비 활성도 높음<br>
-            연한 색: 인구 대비 소비 활성도 낮음<br><br><br>
-
-        <b>한식 인구 대비 소비 활성도 행정동 색상 구간</b><br><br>
-
-        <span style="background:#fff5f0; padding:2px 12px;"></span>
-        0.00 ~ 0.10 : 매우 낮음<br>
-
-        <span style="background:#fee0d2; padding:2px 12px;"></span>
-        0.10 ~ 0.25 : 낮음<br>
-
-        <span style="background:#fcbba1; padding:2px 12px;"></span>
-        0.25 ~ 0.45 : 보통 이하<br>
-
-        <span style="background:#fc9272; padding:2px 12px;"></span>
-        0.45 ~ 0.65 : 보통<br>
-
-        <span style="background:#fb6a4a; padding:2px 12px;"></span>
-        0.65 ~ 0.85 : 높음<br>
-
-        <span style="background:#a50f15; padding:2px 12px;"></span>
-        0.85 ~ 1.00 : 매우 높음<br>
-
-        <hr>
-        <b>지표:</b> 인구 대비 소비 활성도<br>
-        ※ 해당 업종의 소비금액을 평균 총수요인구로 나눈 상대지수
-        </div>
-        """
-        zoom_map.get_root().html.add_child(folium.Element(zoom_legend_html))
-        
+              
         add_grid_heat_layer(
             zoom_map,
             cell,
@@ -860,6 +853,12 @@ def make_recommendation_score_map(boundary, summary, map_name, cell, categories)
         if col not in gdf.columns:
             gdf[col] = 0
         gdf[col] = pd.to_numeric(gdf[col], errors="coerce").fillna(0)
+
+    gdf["store_count"] = (
+        gdf["store_count"]
+        .round(0)
+        .astype(int)
+    )
 
     # 입지추천점수 기준 정규화
     valid = gdf["avg_location_score"] > 0
@@ -956,8 +955,6 @@ def make_recommendation_score_map(boundary, summary, map_name, cell, categories)
         description="소비규모, 수요인구, 성장률, 외부유입, 공급부족을 종합한 상대지수"
     )
 
-    #add_store_count_circle(m, gdf)
-
     add_grid_heat_layer(
         m,
         cell,
@@ -1006,6 +1003,14 @@ def make_score_map(
         gdf[value_col],
         errors="coerce"
     ).fillna(0)
+
+    if "store_count" in gdf.columns:
+        gdf["store_count"] = (
+            pd.to_numeric(gdf["store_count"], errors="coerce")
+            .fillna(0)
+            .round(0)
+            .astype(int)
+        )
 
     valid = gdf[value_col] > 0
 
@@ -1193,6 +1198,12 @@ def make_all_categories_one_map(boundary, result, cell):
                 gdf[col] = 0
             gdf[col] = pd.to_numeric(gdf[col], errors="coerce").fillna(0)
 
+        gdf["store_count"] = (
+            gdf["store_count"]
+            .round(0)
+            .astype(int)
+        )
+
         valid = gdf["consumption_activation"] > 0
         gdf["activation_norm"] = 0.0
 
@@ -1321,6 +1332,8 @@ def main():
 
     print("3. 격자 소비데이터 불러오는 중...")
     cell = load_cell_consumption()
+
+    cell = attach_grid_store_count(cell, result)
     
     map_targets = []
 
@@ -1354,7 +1367,7 @@ def main():
 
         make_activation_map(boundary, summary, map_name, cell, categories)
         make_recommendation_score_map(boundary, summary, map_name, cell, categories)
-                # 소비규모 지도
+
         make_score_map(
             boundary,
             summary,

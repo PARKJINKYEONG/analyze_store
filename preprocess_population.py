@@ -4,10 +4,10 @@ import glob
 import numpy as np
 import pandas as pd
 
-BASE_DIR = r"C:\Users\A\Desktop\데이터"
+BASE_DIR = r"E:\데이터"
 POP_ROOT = os.path.join(BASE_DIR, "구미 유동인구 데이터")
 
-PROJECT_DIR = r"C:\Users\A\Desktop\Proj\store analysis"
+PROJECT_DIR = r"C:\Users\Gaeng2\Desktop\Proj\store analysis"
 OUT_DIR = os.path.join(PROJECT_DIR, "output_2023_2024")
 os.makedirs(OUT_DIR, exist_ok=True)
 
@@ -161,10 +161,7 @@ def preprocess_one_month(folder):
 
     base = pd.DataFrame(columns=["dong_code"])
 
-    # --------------------------------------------------
-    # gumi_exist_dong_YYYYMM.csv
-    # h_* = 주거인구, w_* = 직장인구, v_* = 방문/시간대 인구
-    # --------------------------------------------------
+
     if exist_dong_file:
         home = aggregate_population(
             exist_dong_file,
@@ -181,14 +178,6 @@ def preprocess_one_month(folder):
             value_name="work_pop"
         )
         base = work if base.empty else base.merge(work, on="dong_code", how="outer")
-
-        # visit = aggregate_population(
-        #     exist_dong_file,
-        #     code_col="admdong_cd",
-        #     prefixes=["v_m_", "v_f_"],
-        #     value_name="time_pop"
-        # )
-        #base = visit if base.empty else base.merge(visit, on="dong_code", how="outer")
 
     else:
         if home_file:
@@ -208,26 +197,7 @@ def preprocess_one_month(folder):
                 value_name="work_pop"
             )
             base = work if base.empty else base.merge(work, on="dong_code", how="outer")
-
-    # --------------------------------------------------
-    # gumi_living_pop_YYYYMM.csv
-    # F_*, M_* = 생활인구
-    # 기준 컬럼은 rsdn_admdong_cd
-    # --------------------------------------------------
-    # if living_file:
-    #     living = aggregate_population(
-    #         living_file,
-    #         code_col="rsdn_admdong_cd",
-    #         prefixes=["F_", "M_"],
-    #         value_name="living_pop"
-    #     )
-    #     base = living if base.empty else base.merge(living, on="dong_code", how="outer")
-
-    # --------------------------------------------------
-    # gumi_inflow_YYYYMM.csv
-    # F_*, M_* = 유입인구
-    # 기준 컬럼은 admdong_cd
-    # --------------------------------------------------
+   
     if inflow_file:
         inflow = aggregate_population(
             inflow_file,
@@ -255,11 +225,11 @@ def preprocess_one_month(folder):
     )
 
     # 최종 수요인구
-    # 생활인구, 직장인구, 방문/시간대 인구, 유입인구를 균형 반영
+    # 거주인구, 직장인구, 유입인구를 균형 반영
     base["total_demand_pop"] = (
-        base["home_pop"] * 0.35
-        + base["work_pop"] * 0.35
-        + base["inflow_pop"] * 0.30
+        base["home_pop"] * 0.6
+        + base["work_pop"] * 0.3
+        + base["inflow_pop"] * 0.10
     )
 
     cols = [
